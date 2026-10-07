@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Thellador — Ask your codebase why</title>
+<meta name="description" content="Thellador turns your git history, pull requests and issues into answers. Why does this line exist? Who changed it, when, and what broke because of it.">
+<meta property="og:title" content="Thellador — Ask your codebase why">
+<meta property="og:description" content="Git archaeology for engineering teams. One question, the full story, with citations.">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --bg:#0a0d11;
+    --bg-2:#0e1319;
+    --panel:#12181f;
+    --line:#1e2732;
+    --line-2:#28333f;
+    --txt:#d7e0ea;
+    --muted:#8b98a8;
+    --faint:#5b6877;
+    --green:#7ee787;
+    --blue:#58a6ff;
+    --amber:#e3b341;
+    --red:#ff7b72;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--txt);
+    font-family:var(--sans);
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(1200px 500px at 70% -10%, rgba(88,166,255,.07), transparent 60%),
+      radial-gradient(900px 420px at 15% 0%, rgba(126,231,135,.05), transparent 55%),
+      linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
+    background-size:auto,auto,44px 44px,44px 44px;
+  }
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+
+  /* ---------- header ---------- */
+  header{
+    position:sticky;top:0;z-index:50;
+    backdrop-filter:blur(10px);
+    background:rgba(10,13,17,.82);
+    border-bottom:1px solid var(--line);
+  }
+  .nav{display:flex;align-items:center;gap:28px;height:60px}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.2px;font-size:16px}
+  .logo .glyph{
+    width:26px;height:26px;border-radius:7px;
+    background:linear-gradient(135deg,#153b22,#0f2a4d);
+    border:1px solid #2b4b36;
+    display:grid;place-items:center;
+    font-family:var(--mono);color:var(--green);font-size:14px;
+  }
+  .nav .spacer{flex:1}
+  .nav a.link{color:var(--muted);font-size:14px;transition:color .15s}
+  .nav a.link:hover{color:var(--txt)}
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;
+    font-size:14px;font-weight:600;border-radius:8px;
+    padding:8px 16px;cursor:pointer;transition:all .15s;
+    border:1px solid transparent;font-family:var(--sans);
+  }
+  .btn-primary{background:var(--green);color:#06210d}
+  .btn-primary:hover{background:#96eda0;transform:translateY(-1px)}
+  .btn-ghost{border-color:var(--line-2);color:var(--txt);background:transparent}
+  .btn-ghost:hover{border-color:#3b4a5b;background:rgba(255,255,255,.03)}
+  .btn-lg{padding:12px 22px;font-size:15px;border-radius:9px}
+
+  /* ---------- hero ---------- */
+  .hero{padding:84px 0 40px;display:grid;grid-template-columns:1fr;gap:44px}
+  .kicker{
+    display:inline-flex;align-items:center;gap:8px;
+    font-family:var(--mono);font-size:12.5px;color:var(--green);
+    border:1px solid #1f3a29;background:rgba(126,231,135,.06);
+    padding:5px 12px;border-radius:99px;margin-bottom:22px;
+  }
+  .kicker .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+  h1{
+    font-size:clamp(34px,5.4vw,56px);
+    line-height:1.12;letter-spacing:-1.6px;font-weight:800;
+    margin-bottom:20px;
+  }
+  h1 .why{
+    font-family:var(--mono);font-weight:700;color:var(--green);
+    letter-spacing:-1px;position:relative;
+  }
+  h1 .why::after{
+    content:"";position:absolute;left:0;right:0;bottom:4px;height:10px;
+    background:rgba(126,231,135,.14);z-index:-1;border-radius:2px;
+  }
+  .sub{font-size:18px;color:var(--muted);max-width:640px;margin-bottom:32px}
+  .sub b{color:var(--txt);font-weight:600}
+  .hero-cta{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .hero-note{font-family:var(--mono);font-size:12.5px;color:var(--faint);margin-top:18px}
+  .hero-note span{color:var(--blue)}
+
+  /* ---------- terminal ---------- */
+  .term{
+    background:#0c1117;
+    border:1px solid var(--line-2);
+    border-radius:12px;
+    overflow:hidden;
+    box-shadow:0 24px 70px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.02) inset;
+  }
+  .term-bar{
+    display:flex;align-items:center;gap:8px;
+    padding:11px 16px;border-bottom:1px solid var(--line);
+    background:#10161d;
+  }
+  .term-bar i{width:11px;height:11px;border-radius:50%;display:block}
+  .term-bar i:nth-child(1){background:#ff5f57}
+  .term-bar i:nth-child(2){background:#febc2e}
+  .term-bar i:nth-child(3){background:#28c840}
+  .term-bar .title{
+    flex:1;text-align:center;font-family:var(--mono);
+    font-size:12px;color:var(--faint);
+  }
+  .term-body{
+    padding:20px 22px 26px;
+    font-family:var(--mono);font-size:13.5px;line-height:1.75;
+    overflow-x:auto;white-space:pre;
+    color:#b9c5d2;
+  }
+  .term-body .l{opacity:0;transform:translateY(4px);transition:opacity .4s,transform .4s}
+  .term-body .l.on{opacity:1;transform:none}
+  .prompt{color:var(--green)}
+  .cmd{color:#e6edf3}
+  .dim{color:#5f7183}
+  .pr{color:var(--blue)}
+  .hash{color:var(--amber)}
+  .ok{color:var(--green)}
+  .warn{color:var(--red)}
+  .cite{color:#9aa7b5}
+  .cursor{
+    display:inline-block;width:8px;height:16px;background:var(--green);
+    vertical-align:-3px;animation:blink 1.05s steps(1) infinite;
+  }
+  @keyframes blink{50%{opacity:0}}
+
+  /* ---------- sections ---------- */
+  section{padding:76px 0}
+  .sec-head{margin-bottom:44px}
+  .sec-tag{font-family:var(--mono);font-size:13px;color:var(--blue);letter-spacing:1px;text-transform:uppercase}
+  h2{font-size:clamp(26px,3.4vw,36px);letter-spacing:-.8px;margin-top:10px;font-weight:750}
+  .sec-sub{color:var(--muted);margin-top:12px;max-width:620px;font-size:16.5px}
+
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .step{
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:26px 24px;position:relative;transition:border-color .2s,transform .2s;
+  }
+  .step:hover{border-color:#2e3d4d;transform:translateY(-2px)}
+  .step .n{
+    font-family:var(--mono);font-size:13px;color:var(--green);
+    border:1px solid #1f3a29;width:34px;height:34px;border-radius:8px;
+    display:grid;place-items:center;margin-bottom:18px;background:rgba(126,231,135,.05);
+  }
+  .step h3{font-size:17px;margin-bottom:8px;letter-spacing:-.2px}
+  .step p{color:var(--muted);font-size:14.5px}
+  .step code{font-family:var(--mono);font-size:13px;color:var(--blue);background:rgba(88,166,255,.08);padding:1px 6px;border-radius:5px}
+
+  .features{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .feat{
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:26px 26px 24px;transition:border-color .2s;
+  }
+  .feat:hover{border-color:#2e3d4d}
+  .feat .ico{
+    font-family:var(--mono);font-size:20px;color:var(--green);
+    margin-bottom:14px;display:block;
+  }
+  .feat h3{font-size:16.5px;margin-bottom:8px;letter-spacing:-.2px}
+  .feat p{color:var(--muted);font-size:14.5px}
+  .feat p code{font-family:var(--mono);font-size:13px;color:var(--blue)}
+
+  .quote{
+    border-left:3px solid var(--green);
+    background:linear-gradient(90deg, rgba(126,231,135,.05), transparent 70%);
+    padding:8px 0 8px 24px;margin:38px 0 0;
+  }
+  .quote p{font-size:19px;line-height:1.55;letter-spacing:-.3px}
+  .quote cite{display:block;margin-top:10px;font-style:normal;color:var(--faint);font-size:14px;font-family:var(--mono)}
+
+  /* ---------- works-with strip ---------- */
+  .strip{
+    border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+    padding:22px 0;background:rgba(255,255,255,.012);
+  }
+  .strip .wrap{display:flex;gap:14px 34px;flex-wrap:wrap;align-items:center;justify-content:center}
+  .strip span{font-family:var(--mono);font-size:13.5px;color:var(--faint)}
+  .strip b{color:var(--muted);font-weight:500}
+
+  /* ---------- cta ---------- */
+  .cta{
+    background:
+      radial-gradient(700px 300px at 50% 0%, rgba(126,231,135,.08), transparent 70%),
+      var(--bg-2);
+    border-top:1px solid var(--line);
+    text-align:center;
+  }
+  .cta h2{margin-bottom:14px}
+  .cta p{color:var(--muted);max-width:560px;margin:0 auto 30px}
+  .cta .hero-cta{justify-content:center}
+  .made{
+    margin-top:34px;font-family:var(--mono);font-size:12.5px;color:var(--faint);
+  }
+  .made b{color:var(--blue);font-weight:500}
+
+  /* ---------- footer ---------- */
+  footer{border-top:1px solid var(--line);padding:30px 0;background:var(--bg)}
+  footer .wrap{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  footer .logo{font-size:14px}
+  footer .spacer{flex:1}
+  footer a.f{color:var(--muted);font-size:14px;transition:color .15s}
+  footer a.f:hover{color:var(--txt)}
+  footer .c{color:var(--faint);font-size:13px;font-family:var(--mono)}
+
+  @media(max-width:880px){
+    .steps{grid-template-columns:1fr}
+    .features{grid-template-columns:1fr}
+    .hero{padding-top:56px}
+    section{padding:56px 0}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="logo" href="#"><span class="glyph">&gt;_</span> Thellador</a>
+    <div class="spacer"></div>
+    <a class="link" href="#how">How it works</a>
+    <a class="link" href="#features">Features</a>
+    <a class="btn btn-primary" href="mailto:hi@thellador.me?subject=Early%20access">Request access</a>
+  </div>
+</header>
+
+<div class="wrap hero">
+  <div>
+    <span class="kicker"><span class="dot"></span> git archaeology, now with answers</span>
+    <h1>Ask your codebase <span class="why">why</span>.</h1>
+    <p class="sub">
+      Every line has a story: the incident that caused it, the PR that changed it,
+      the issue it broke three months later. <b>Thellador reads your git history,
+      pull requests and tickets</b> — then answers in plain language, with citations.
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary btn-lg" href="mailto:hi@thellador.me?subject=Early%20access">Request early access</a>
+      <a class="btn btn-ghost btn-lg" href="#how">See how it works ↓</a>
+    </div>
+    <p class="hero-note">$ thellador <span>"why is the retry cap 3?"</span> — answers in seconds, from your own history.</p>
+  </div>
+
+  <div class="term" id="term">
+    <div class="term-bar"><i></i><i></i><i></i><span class="title">thellador — ~/acme/api</span></div>
+    <div class="term-body" id="termBody"><span class="l"><span class="prompt">$</span> <span class="cmd">thellador "why is the retry cap 3?"</span></span>
+<span class="l"><span class="dim"> ⟲ indexing … 14,392 commits · 2,118 PRs · 741 issues — done in 41s</span></span>
+<span class="l"> </span>
+<span class="l"><span class="warn"> ⚠ RETRY_CAP = 3</span><span class="dim">  (src/http/client.ts:88)</span></span>
+<span class="l"> </span>
+<span class="l"><span class="pr"> ├ PR #1042</span>  “clamp retries after INC-88”   <span class="cite">@a.petrov · Mar 14</span></span>
+<span class="l"><span class="dim"> │</span>   outage INC-88: retry storms amplified the 502 spike 6×</span>
+<span class="l"><span class="pr"> ├ PR #778</span>   “add jitter to backoff”        <span class="cite">@m.silva · Jan 09</span></span>
+<span class="l"><span class="dim"> │</span>   cap was 5 here — lowered when jitter alone didn’t settle p99</span>
+<span class="l"><span class="pr"> └ linked issue</span> <span class="hash">#991</span> “flaky checkout during sale”</span>
+<span class="l"> </span>
+<span class="l"><span class="ok"> why 3:</span> smallest cap that kept p99 flat in the INC-88 postmortem</span>
+<span class="l"><span class="dim">         (p99 +2% at cap 3 vs +31% at cap 5).</span></span>
+<span class="l"> </span>
+<span class="l"><span class="dim"> answer built from</span> 3 commits · 2 PRs · 1 incident · <span class="ok">0 guesses</span> <span class="cursor"></span></span></div>
+  </div>
+</div>
+
+<div class="strip">
+  <div class="wrap">
+    <span><b>works with</b> GitHub</span>
+    <span><b>works with</b> GitLab</span>
+    <span><b>works with</b> Bitbucket</span>
+    <span><b>lives in</b> CLI</span>
+    <span><b>lives in</b> pull requests</span>
+    <span><b>lives in</b> Slack</span>
+    <span><b>index</b> read-only · ephemeral</span>
+  </div>
+</div>
+
+<section id="how">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-tag">How it works</span>
+      <h2>Three steps. No migration. No agents run wild.</h2>
+      <p class="sec-sub">Thellador never touches your code. It reads the record of what your team already wrote down — and connects the dots no human can hold in their head.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="n">01</div>
+        <h3>Connect the repo</h3>
+        <p>Read-only token, two clicks. Thellador pulls commit messages, PR descriptions, review threads, linked issues and incident notes — <code>never the source itself</code>.</p>
+      </div>
+      <div class="step">
+        <div class="n">02</div>
+        <h3>It builds the story graph</h3>
+        <p>Causality, not keywords: which commit answered which outage, which revert undid which fix, which “temporary” hack has outlived three authors.</p>
+      </div>
+      <div class="step">
+        <div class="n">03</div>
+        <h3>Ask anything</h3>
+        <p>From your terminal, a PR comment, or Slack. Every answer arrives with <code>commits, PRs and people</code> cited — click through and verify it yourself.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features" style="background:var(--bg-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-tag">What you get</span>
+      <h2>Blame turned into testimony.</h2>
+    </div>
+    <div class="features">
+      <div class="feat">
+        <span class="ico">⌖</span>
+        <h3>Answers with citations</h3>
+        <p>Not “it looks like…” — every claim links the exact <code>commit</code>, <code>PR</code> and <code>incident</code> it came from. If the history doesn’t know, Thellador says so.</p>
+      </div>
+      <div class="feat">
+        <span class="ico">⟳</span>
+        <h3>Onboarding in one afternoon</h3>
+        <p>New hire asks “what does this module actually do, and who owns it?” — gets the human history: why it exists, what it replaced, which fires it survived.</p>
+      </div>
+      <div class="feat">
+        <span class="ico">⚔</span>
+        <h3>Incident archaeology</h3>
+        <p>During an outage: “what changed in this path this week?” Thellador reconstructs the change timeline across PRs and reverts before the postmortem starts.</p>
+      </div>
+      <div class="feat">
+        <span class="ico">⚿</span>
+        <h3>Your history stays yours</h3>
+        <p>Read-only access, ephemeral index, per-repo scoping. Nothing is written back, nothing is shared, nothing trains anything. Ask, answer, forget.</p>
+      </div>
+    </div>
+
+    <div class="quote">
+      <p>“The hardest bugs aren’t in the code. They’re in the six decisions that led to the code — and only one of them is still in someone’s head.”</p>
+      <cite>— every senior engineer, right before they quit</cite>
+    </div>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="wrap">
+    <span class="sec-tag">Early access</span>
+    <h2>Stop archaeology by hand.</h2>
+    <p>Thellador is in private beta with a handful of engineering teams. Tell us about your codebase and we’ll open a seat.</p>
+    <div class="hero-cta">
+      <a class="btn btn-primary btn-lg" href="mailto:hi@thellador.me?subject=Early%20access">hi@thellador.me</a>
+      <a class="btn btn-ghost btn-lg" href="mailto:hi@thellador.me?subject=Demo">Book a 15-min demo</a>
+    </div>
+    <p class="made">built with <b>Claude</b> · index answers in seconds · SOC2-in-progress is a lie we won’t tell you</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a class="logo" href="#"><span class="glyph">&gt;_</span> Thellador</a>
+    <div class="spacer"></div>
+    <a class="f" href="mailto:hi@thellador.me">hi@thellador.me</a>
+    <a class="f" href="#how">How it works</a>
+    <span class="c">© 2026 Thellador</span>
+  </div>
+</footer>
+
+<script>
+  (function(){
+    var lines = document.querySelectorAll('#termBody .l');
+    var term = document.getElementById('term');
+    var played = false;
+    function play(){
+      if (played) return;
+      played = true;
+      lines.forEach(function(l, i){
+        setTimeout(function(){ l.classList.add('on'); }, 260 * i);
+      });
+    }
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(function(en){
+        en.forEach(function(e){ if (e.isIntersecting) play(); });
+      }, {threshold:.25}).observe(term);
+    } else { play(); }
+    setTimeout(play, 2500);
+  })();
+</script>
+</body>
+</html>
